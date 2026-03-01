@@ -75,12 +75,10 @@ module.exports = async (req, res) => {
             return res.status(400).json({ error: "Request body is missing 'contents'. Ensure you are sending JSON with the 'contents' key." });
         }
 
-        // --- BASE TEST MODE ---
-        // Let's try to rule out everything except the core connection.
-        // We'll try the most robust model and API version combination.
+        // --- RAW FETCH TEST (THE ULTIMATE DIAGNOSTIC) ---
+        // If the SDK fails, we try a direct REST call to see exactly what Google says.
         const variations = [
             { model: "gemini-1.5-flash", version: "v1" },
-            { model: "gemini-1.5-flash-latest", version: "v1beta" },
             { model: "gemini-pro", version: "v1" }
         ];
 
@@ -88,27 +86,43 @@ module.exports = async (req, res) => {
         let successfulModel = null;
         let responseText = null;
 
-        // Diagnostic: Masked key for Vercel logs (already handled above)
-
         for (const variant of variations) {
             try {
+                // 1. Try with the official SDK first
+                console.log(`Trying SDK for ${variant.model} on ${variant.version}...`);
                 const model = genAI.getGenerativeModel({ model: variant.model }, { apiVersion: variant.version });
-
-                // Minimal prompt test if history fails
-                let result;
-                try {
-                    result = await model.generateContent({ contents });
-                } catch (historyErr) {
-                    console.log(`History fail for ${variant.model}, trying base prompt...`);
-                    result = await model.generateContent("Hello, are you there?");
-                }
-
+                const result = await model.generateContent({ contents });
                 responseText = result.response.text();
-                successfulModel = `${variant.model} (${variant.version})`;
+                successfulModel = `SDK: ${variant.model} (${variant.version})`;
                 break;
-            } catch (err) {
-                console.log(`Failed variant ${variant.model} on ${variant.version}: ${err.message}`);
-                lastError = err;
+            } catch (sdkErr) {
+                console.log(`SDK failed for ${variant.model}: ${sdkErr.message}`);
+
+                // 2. Try HARD FALLBACK with Raw Fetch (REST API)
+                // This bypasses the library entirely.
+                try {
+                    console.log(`Trying RAW FETCH for ${variant.model}...`);
+                    const url = `https://generativelanguage.googleapis.com/${variant.version}/models/${variant.model}:generateContent?key=${API_KEY}`;
+                    const rawResponse = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents })
+                    });
+
+                    const rawData = await rawResponse.json();
+
+                    if (rawResponse.ok && rawData.candidates && rawData.candidates[0].content) {
+                        responseText = rawData.candidates[0].content.parts[0].text;
+                        successfulModel = `RAW FETCH: ${variant.model}`;
+                        break;
+                    } else {
+                        console.log(`Raw fetch failed for ${variant.model}: ${rawResponse.status} ${JSON.stringify(rawData)}`);
+                        lastError = new Error(`Both SDK and Raw Fetch failed. Status: ${rawResponse.status}`);
+                    }
+                } catch (fetchErr) {
+                    console.log(`Fetch logic error for ${variant.model}: ${fetchErr.message}`);
+                    lastError = fetchErr;
+                }
             }
         }
 
@@ -119,22 +133,20 @@ module.exports = async (req, res) => {
         throw lastError;
 
     } catch (error) {
-        console.error("Gemini API Error details:", error);
+        console.error("Final catch-all error:", error);
 
         const statusCode = error.status || 500;
         const errorMessage = error.message || "Unknown error";
 
         res.status(statusCode).json({
-            error: "Gemini API Error - Persistent 404",
+            error: "Gemini API Error - SDK & Fetch Failed",
             message: errorMessage,
             diagnostics: {
-                key_prefix: API_KEY.substring(0, 4),
-                key_suffix: API_KEY.substring(API_KEY.length - 4),
-                key_length: API_KEY.length,
-                is_404: errorMessage.includes("404"),
-                vercel_node_version: process.version
+                key_info: `Prefix: ${API_KEY.substring(0, 4)}, Suffix: ${API_KEY.substring(API_KEY.length - 4)}, Length: ${API_KEY.length}`,
+                node_env: process.env.NODE_ENV,
+                is_404: errorMessage.includes("404")
             },
-            remediation: "If you see a 404 with a 39-character key, your region might be restricted or Vercel hasn't picked up the new key. Try a full 'Redeploy' in Vercel."
+            remediation: "If you see a 404, please tell me which COUNTRY you are in. Also, ensure 'Generative Language API' is ENABLED in Google Cloud/AI Studio for this specific key."
         });
     }
 };
