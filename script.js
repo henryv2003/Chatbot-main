@@ -18,7 +18,7 @@ const userData = {
   message: null,
   file: {
     data: null,
-    mime_type: null
+    mimeType: null
   }
 }
 
