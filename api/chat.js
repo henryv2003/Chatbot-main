@@ -47,15 +47,15 @@ module.exports = async (req, res) => {
 
     // 4. Generate Content using the NEW Unified SDK
     try {
-        // Using Gemini 2.0 Flash - The modern standard
-        const MODEL_NAME = "gemini-2.0-flash";
+        // Switching to gemini-1.5-flash as it has much higher free tier quotas
+        const MODEL_NAME = "gemini-1.5-flash";
 
         const result = await ai.models.generateContent({
             model: MODEL_NAME,
             contents: contents
         });
 
-        // The new SDK returns text directly on the result object or nested in response
+        // The new SDK returns text directly on the result object
         const responseText = result.text || (result.response && result.response.text ? result.response.text() : "No response text");
 
         res.status(200).json({
