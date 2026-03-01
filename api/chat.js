@@ -75,41 +75,55 @@ module.exports = async (req, res) => {
             return res.status(400).json({ error: "Request body is missing 'contents'. Ensure you are sending JSON with the 'contents' key." });
         }
 
-        // Call the Gemini API forcing version 'v1'
-        const model = genAI.getGenerativeModel({ model: MODEL_NAME }, { apiVersion: 'v1' });
+        // --- MODEL HUNTER MODE ---
+        // We try multiple models and versions to find one that works for this specific API key/region.
+        const variations = [
+            { model: "gemini-1.5-flash", version: "v1" },
+            { model: "gemini-1.5-flash", version: "v1beta" },
+            { model: "gemini-pro", version: "v1" },
+            { model: "gemini-1.5-flash-8b", version: "v1" }
+        ];
 
-        // Use the simplest possible call format
-        const result = await model.generateContent({ contents });
-        const responseText = result.response.text();
+        let lastError = null;
+        let successfulModel = null;
+        let responseText = null;
 
-        // Extract and send the response text
-        res.status(200).json({ text: responseText });
+        for (const variant of variations) {
+            try {
+                const model = genAI.getGenerativeModel({ model: variant.model }, { apiVersion: variant.version });
+                const result = await model.generateContent({ contents });
+                responseText = result.response.text();
+                successfulModel = `${variant.model} (${variant.version})`;
+                break; // Success!
+            } catch (err) {
+                console.log(`Failed variant ${variant.model} on ${variant.version}: ${err.message}`);
+                lastError = err;
+            }
+        }
+
+        if (responseText) {
+            // Log success for debugging
+            console.log(`Successful model found: ${successfulModel}`);
+            return res.status(200).json({ text: responseText, model_used: successfulModel });
+        }
+
+        // If we reach here, all variants failed
+        throw lastError;
 
     } catch (error) {
         console.error("Gemini API Error details:", error);
-
-        // Try to list available models to see what this key actually has access to
-        let availableModels = [];
-        try {
-            const list = await genAI.listModels();
-            availableModels = list.models ? list.models.map(m => m.name) : ["No models found in list"];
-        } catch (listError) {
-            availableModels = [`Failed to list models: ${listError.message}`];
-        }
 
         const statusCode = error.status || 500;
         const errorMessage = error.message || "Unknown error";
 
         res.status(statusCode).json({
-            error: "Gemini API Error",
+            error: "Gemini API Error - All variants failed",
             message: errorMessage,
             diagnostics: {
-                model_queried: MODEL_NAME,
-                version_tried: "v1",
                 key_info: `Prefix: ${API_KEY.substring(0, 4)}..., Length: ${API_KEY.length}`,
-                available_models: availableModels
+                hint: "This 404 means the API Key is not authorized for any common Gemini models. This happens if the 'Generative Language API' is not enabled or if you are using an old/restricted key."
             },
-            instruction: "If your available_models list is empty or fails, your API Key is likely not configured for the 'Generative Language API'. Go to AI Studio and create a NEW key."
+            instruction: "Please go to AI Studio, create a completely NEW API Key, and update it in your Vercel Environment Variables."
         });
     }
 };
