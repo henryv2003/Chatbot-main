@@ -85,10 +85,11 @@ module.exports = async (req, res) => {
         res.status(200).json({ text: responseText });
 
     } catch (error) {
-        console.error("Gemini API Error:", error.message);
+        console.error("Gemini API Error details:", error);
         res.status(500).json({
-            error: "Failed to communicate with the Gemini API.",
-            details: error.message
+            error: "Internal Server Error during Gemini communication",
+            message: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 };

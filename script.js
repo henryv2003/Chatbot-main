@@ -120,7 +120,7 @@ const handleOutgoingMessage = (e) => {
 
   // Create and Display user message
   const messageContent = `<div class="message-text"></div>
-                          ${userData.file.data ? `<img src="data:${userData.file.mime_type};base64,
+                          ${userData.file.data ? `<img src="data:${userData.file.mimeType};base64,
                           ${userData.file.data}" class="attachment" />` : ""}`;
   const outGoingMessageDiv = createMessageElement(messageContent, "user-message")
   outGoingMessageDiv.querySelector('.message-text').innerText = userData.message;
@@ -159,7 +159,7 @@ messageInput.addEventListener("keydown", (e) => {
 messageInput.addEventListener("input", () => {
   messageInput.style.height = `${initialInputHeight}px`;
   messageInput.style.height = `${messageInput.scrollHeight}px`;
-  document.querySelector("chat-form").style.borderRadius = messageInput.scrollHeight > initialInputHeight ?
+  document.querySelector(".chat-form").style.borderRadius = messageInput.scrollHeight > initialInputHeight ?
     "15px" : "32px";
 })
 
