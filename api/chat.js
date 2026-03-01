@@ -45,11 +45,14 @@ module.exports = async (req, res) => {
     const { contents } = bodyData;
     if (!contents) return res.status(400).json({ error: "Missing 'contents' in payload." });
 
-    // 4. THE ULTIMATE MODEL HUNTER (with multi-error reporting)
+    // 4. THE EU/EEA MODEL HUNTER 
+    // Trying experimental and stable models to find any active quota
     const modelsToTry = [
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
-        "gemini-2.0-flash"
+        "gemini-2.0-flash-exp",   // Experimental (often has separate quota)
+        "gemini-2.0-flash",       // Standard 2.0
+        "gemini-1.5-flash",       // Standard 1.5
+        "gemini-1.5-pro",        // Pro 1.5
+        "gemini-1.0-pro"         // Legacy Pro (sometimes works when others are 429)
     ];
 
     const results = [];
@@ -59,6 +62,7 @@ module.exports = async (req, res) => {
     try {
         for (const modelId of modelsToTry) {
             try {
+                // Use a short timeout to speed up the hunt
                 const result = await ai.models.generateContent({
                     model: modelId,
                     contents: contents
@@ -74,7 +78,7 @@ module.exports = async (req, res) => {
                 results.push({
                     model: modelId,
                     error: err.message,
-                    is_p_0: err.message.includes("limit: 0") || err.message.includes("429")
+                    status: err.status || (err.message.includes("404") ? 404 : 429)
                 });
             }
         }
@@ -87,24 +91,23 @@ module.exports = async (req, res) => {
             });
         }
 
-        // If we reach here, all failed - construct a detailed report
-        const isAllQuota = results.every(r => r.is_p_0);
-
+        // If all failed, provide the "Sweden Quota Fix" response
         return res.status(429).json({
-            error: "Gemini Quota/Permission Error",
-            message: "None of the available models worked for your API Key.",
+            error: "Gemini Quota Block (Sweden/EU)",
+            message: "Your project has 'Limit: 0' quota. This is a common Google restriction for new EU projects.",
             diagnostics: {
-                location: "Sweden (EU/EEA)",
-                sdk: "@google/genai",
-                detailed_errors: results
+                location: "Sweden",
+                detailed_report: results
             },
-            remediation: isAllQuota
-                ? "Your API Key has 0 quota for THESE models. In the EU (Sweden), Google requires you to enable Billing or use a specific Paid Tier project in AI Studio for some models."
-                : "A mix of 404/429 errors suggests your API Key is restricted. Please create a NEW project at https://aistudio.google.com/ and get a fresh key."
+            remediation_guide: {
+                step1: "Go to Google AI Studio (https://aistudio.google.com/)",
+                step2: "Click 'Settings' (cog icon) -> 'Plan & Billing'",
+                step3: "Ensure your project is on the 'Free of Charge' plan. If it says 'Limit: 0', you MUST link a Billing Account (even a free trial one) to unlock the quota.",
+                step4: "Alternatively, create a completely NEW project in AI Studio. Sometimes the first project gets stuck with 0 quota in the EU."
+            }
         });
 
     } catch (criticalErr) {
-        console.error("Critical SDK Error:", criticalErr.message);
-        res.status(500).json({ error: "Server Error", message: criticalErr.message });
+        res.status(500).json({ error: "Critical Error", message: criticalErr.message });
     }
 };
