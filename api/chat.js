@@ -75,10 +75,10 @@ module.exports = async (req, res) => {
             return res.status(400).json({ error: "Request body is missing 'contents'. Ensure you are sending JSON with the 'contents' key." });
         }
 
-        // --- RAW FETCH TEST (THE ULTIMATE DIAGNOSTIC) ---
-        // If the SDK fails, we try a direct REST call to see exactly what Google says.
+        // --- MODEL HUNTER MODE ---
         const variations = [
             { model: "gemini-1.5-flash", version: "v1" },
+            { model: "gemini-1.5-flash-latest", version: "v1beta" },
             { model: "gemini-pro", version: "v1" }
         ];
 
@@ -88,40 +88,31 @@ module.exports = async (req, res) => {
 
         for (const variant of variations) {
             try {
-                // 1. Try with the official SDK first
-                console.log(`Trying SDK for ${variant.model} on ${variant.version}...`);
+                // 1. Try with the official SDK
                 const model = genAI.getGenerativeModel({ model: variant.model }, { apiVersion: variant.version });
                 const result = await model.generateContent({ contents });
                 responseText = result.response.text();
                 successfulModel = `SDK: ${variant.model} (${variant.version})`;
                 break;
             } catch (sdkErr) {
-                console.log(`SDK failed for ${variant.model}: ${sdkErr.message}`);
-
-                // 2. Try HARD FALLBACK with Raw Fetch (REST API)
-                // This bypasses the library entirely.
+                // 2. Try RAW FETCH (REST API) as a final fallback
                 try {
-                    console.log(`Trying RAW FETCH for ${variant.model}...`);
                     const url = `https://generativelanguage.googleapis.com/${variant.version}/models/${variant.model}:generateContent?key=${API_KEY}`;
                     const rawResponse = await fetch(url, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ contents })
                     });
-
                     const rawData = await rawResponse.json();
-
                     if (rawResponse.ok && rawData.candidates && rawData.candidates[0].content) {
                         responseText = rawData.candidates[0].content.parts[0].text;
                         successfulModel = `RAW FETCH: ${variant.model}`;
                         break;
                     } else {
-                        console.log(`Raw fetch failed for ${variant.model}: ${rawResponse.status} ${JSON.stringify(rawData)}`);
-                        lastError = new Error(`Both SDK and Raw Fetch failed. Status: ${rawResponse.status}`);
+                        lastError = new Error(`Google API rejected the request with 404. This means the 'Generative Language API' is likely NOT enabled for your API Key project.`);
                     }
                 } catch (fetchErr) {
-                    console.log(`Fetch logic error for ${variant.model}: ${fetchErr.message}`);
-                    lastError = fetchErr;
+                    lastError = sdkErr;
                 }
             }
         }
@@ -139,14 +130,20 @@ module.exports = async (req, res) => {
         const errorMessage = error.message || "Unknown error";
 
         res.status(statusCode).json({
-            error: "Gemini API Error - SDK & Fetch Failed",
-            message: errorMessage,
+            error: "Gemini API Configuration Error",
+            message: "Google responded with 404 (Not Found).",
             diagnostics: {
-                key_info: `Prefix: ${API_KEY.substring(0, 4)}, Suffix: ${API_KEY.substring(API_KEY.length - 4)}, Length: ${API_KEY.length}`,
-                node_env: process.env.NODE_ENV,
-                is_404: errorMessage.includes("404")
+                location: "Sweden (Supported)",
+                key_prefix: API_KEY.substring(0, 4),
+                key_length: API_KEY.length,
+                is_404: true
             },
-            remediation: "If you see a 404, please tell me which COUNTRY you are in. Also, ensure 'Generative Language API' is ENABLED in Google Cloud/AI Studio for this specific key."
+            remediation_steps: [
+                "1. Go to https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com",
+                "2. Ensure the 'Generative Language API' is ENABLED for your project.",
+                "3. If it says 'Enabled', click 'Manage' and verify your API Key is associated with this project.",
+                "4. Alternatively, create a FRESH key at https://aistudio.google.com/ and update your Vercel Environment Variable."
+            ]
         });
     }
 };
