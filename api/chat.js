@@ -45,38 +45,63 @@ module.exports = async (req, res) => {
     const { contents } = bodyData;
     if (!contents) return res.status(400).json({ error: "Missing 'contents' in payload." });
 
-    // 4. Generate Content using the NEW Unified SDK
+    // 4. THE ULTIMATE MODEL HUNTER
+    const modelsToTry = [
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-1.5-flash-latest",
+        "gemini-2.0-flash"
+    ];
+
+    let lastError = null;
+    let successfulModel = null;
+    let responseText = null;
+
     try {
-        // Switching to gemini-1.5-flash as it has much higher free tier quotas
-        const MODEL_NAME = "gemini-1.5-flash";
+        for (const modelId of modelsToTry) {
+            try {
+                const result = await ai.models.generateContent({
+                    model: modelId,
+                    contents: contents
+                });
 
-        const result = await ai.models.generateContent({
-            model: MODEL_NAME,
-            contents: contents
-        });
+                responseText = result.text || (result.response && result.response.text ? result.response.text() : null);
 
-        // The new SDK returns text directly on the result object
-        const responseText = result.text || (result.response && result.response.text ? result.response.text() : "No response text");
+                if (responseText) {
+                    successfulModel = modelId;
+                    break;
+                }
+            } catch (err) {
+                console.log(`Model Hunter: ${modelId} failed: ${err.message}`);
+                lastError = err;
+            }
+        }
 
-        res.status(200).json({
-            text: responseText,
-            model: MODEL_NAME
-        });
+        if (responseText) {
+            return res.status(200).json({
+                text: responseText,
+                model_used: successfulModel,
+                location: "Sweden (Authenticated)"
+            });
+        }
+
+        // If we reach here, all failed
+        throw lastError;
 
     } catch (error) {
-        console.error("Gemini Unified SDK Error:", error.message);
+        console.error("Gemini Unified SDK Final Error:", error.message);
 
-        // Final Diagnostic if it still fails
         res.status(error.status || 500).json({
-            error: "Gemini API Error",
+            error: "Gemini API Error - All models failed",
             message: error.message,
             diagnostics: {
                 location: "Sweden",
-                key_prefix: API_KEY.substring(0, 4),
+                sdk: "@google/genai",
+                models_tried: modelsToTry,
                 is_404: error.message.includes("404"),
-                sdk: "@google/genai"
+                is_429: error.message.includes("429")
             },
-            remediation: "If you still see 404, it is most likely that the 'Generative Language API' is not enabled in your Google Cloud Project."
+            remediation: "If you see a mix of 404/429, your API Key might be restricted to an older project. Go to AI Studio and create a NEW project for a fresh API key."
         });
     }
 };
