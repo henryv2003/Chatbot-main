@@ -1,21 +1,22 @@
 // api/chat.js (Your Vercel Serverless Function)
 
-// 1. Load environment variables (dotenv is handled by Vercel for env vars)
-// We just need the key from the environment
-const API_KEY = process.env.GEMINI_API_KEY;
+// 1. Load environment variables
+const API_KEY = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
 
 // 2. Import the class for the SDK
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // 3. Initialize the AI client
 if (!API_KEY) {
-    // If the key is missing, return an error function immediately
     module.exports = (req, res) => res.status(500).send("Error: GEMINI_API_KEY is missing from Vercel Environment Variables.");
     return;
 }
 
+// Log masked key for user verification in Vercel logs
+console.log(`API Key loaded. Length: ${API_KEY.length}, Starts with: ${API_KEY.substring(0, 4)}..., Ends with: ...${API_KEY.substring(API_KEY.length - 4)}`);
+
 const genAI = new GoogleGenerativeAI(API_KEY);
-const MODEL_NAME = "gemini-pro"; // Most widely compatible model identifier
+const MODEL_NAME = "gemini-1.5-flash"; // Reverting to the modern standard model
 
 
 // 4. Api chat endpoint
