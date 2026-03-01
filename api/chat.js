@@ -45,15 +45,14 @@ module.exports = async (req, res) => {
     const { contents } = bodyData;
     if (!contents) return res.status(400).json({ error: "Missing 'contents' in payload." });
 
-    // 4. THE ULTIMATE MODEL HUNTER
+    // 4. THE ULTIMATE MODEL HUNTER (with multi-error reporting)
     const modelsToTry = [
         "gemini-1.5-flash",
         "gemini-1.5-pro",
-        "gemini-1.5-flash-latest",
         "gemini-2.0-flash"
     ];
 
-    let lastError = null;
+    const results = [];
     let successfulModel = null;
     let responseText = null;
 
@@ -72,8 +71,11 @@ module.exports = async (req, res) => {
                     break;
                 }
             } catch (err) {
-                console.log(`Model Hunter: ${modelId} failed: ${err.message}`);
-                lastError = err;
+                results.push({
+                    model: modelId,
+                    error: err.message,
+                    is_p_0: err.message.includes("limit: 0") || err.message.includes("429")
+                });
             }
         }
 
@@ -81,27 +83,28 @@ module.exports = async (req, res) => {
             return res.status(200).json({
                 text: responseText,
                 model_used: successfulModel,
-                location: "Sweden (Authenticated)"
+                meta: { location: "Sweden", sdk: "@google/genai" }
             });
         }
 
-        // If we reach here, all failed
-        throw lastError;
+        // If we reach here, all failed - construct a detailed report
+        const isAllQuota = results.every(r => r.is_p_0);
 
-    } catch (error) {
-        console.error("Gemini Unified SDK Final Error:", error.message);
-
-        res.status(error.status || 500).json({
-            error: "Gemini API Error - All models failed",
-            message: error.message,
+        return res.status(429).json({
+            error: "Gemini Quota/Permission Error",
+            message: "None of the available models worked for your API Key.",
             diagnostics: {
-                location: "Sweden",
+                location: "Sweden (EU/EEA)",
                 sdk: "@google/genai",
-                models_tried: modelsToTry,
-                is_404: error.message.includes("404"),
-                is_429: error.message.includes("429")
+                detailed_errors: results
             },
-            remediation: "If you see a mix of 404/429, your API Key might be restricted to an older project. Go to AI Studio and create a NEW project for a fresh API key."
+            remediation: isAllQuota
+                ? "Your API Key has 0 quota for THESE models. In the EU (Sweden), Google requires you to enable Billing or use a specific Paid Tier project in AI Studio for some models."
+                : "A mix of 404/429 errors suggests your API Key is restricted. Please create a NEW project at https://aistudio.google.com/ and get a fresh key."
         });
+
+    } catch (criticalErr) {
+        console.error("Critical SDK Error:", criticalErr.message);
+        res.status(500).json({ error: "Server Error", message: criticalErr.message });
     }
 };
