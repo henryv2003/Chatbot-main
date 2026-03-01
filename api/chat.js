@@ -15,7 +15,7 @@ if (!API_KEY) {
 }
 
 const genAI = new GoogleGenerativeAI(API_KEY);
-const MODEL_NAME = "gemini-1.5-flash-latest"; // Best compatibility with v1beta endpoint
+const MODEL_NAME = "gemini-pro"; // Most widely compatible model identifier
 
 
 // 4. Api chat endpoint
@@ -75,13 +75,11 @@ module.exports = async (req, res) => {
         }
 
         // Call the Gemini API
-        // NOTE: We use the MODEL_NAME as provided, but some environments prefer the 'models/' prefix
+        // NOTE: gemini-pro is highly stable across different API versions
         const model = genAI.getGenerativeModel({ model: MODEL_NAME });
 
-        const result = await model.generateContent({
-            contents: contents
-        });
-
+        // Use the simplest possible call format
+        const result = await model.generateContent({ contents });
         const responseText = result.response.text();
 
         // Extract and send the response text
@@ -98,8 +96,7 @@ module.exports = async (req, res) => {
             error: "Gemini API Error",
             message: errorMessage,
             model_queried: MODEL_NAME,
-            is_404: errorMessage.includes("404"),
-            suggestion: "If you see 404, it might mean the model identifier is wrong for this API version. Try pushing these new changes."
+            hint: "If this still returns 404 with 'gemini-pro', it strongly suggests the API Key is invalid or restricted for the Generative Language API."
         });
     }
 };
