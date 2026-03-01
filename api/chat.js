@@ -39,33 +39,32 @@ module.exports = async (req, res) => {
 
     let bodyData;
 
-    // --- START: MANUAL BODY PARSING FIX ---
-    try {
-        // Read the body stream and parse it as JSON
-        bodyData = await new Promise((resolve, reject) => {
-            let body = '';
-            req.on('data', chunk => {
-                body += chunk.toString();
-            });
-            req.on('end', () => {
-                try {
-                    // Only try to parse if body content exists
-                    if (body) {
-                        resolve(JSON.parse(body));
-                    } else {
-                        resolve({});
+    // --- START: IMPROVED BODY PARSING ---
+    if (req.body && typeof req.body === 'object') {
+        bodyData = req.body;
+    } else {
+        try {
+            // Read the body stream if not already parsed
+            bodyData = await new Promise((resolve, reject) => {
+                let body = '';
+                req.on('data', chunk => {
+                    body += chunk.toString();
+                });
+                req.on('end', () => {
+                    try {
+                        resolve(body ? JSON.parse(body) : {});
+                    } catch (e) {
+                        reject(e);
                     }
-                } catch (e) {
-                    reject(e); // Malformed JSON
-                }
+                });
+                req.on('error', reject);
             });
-            req.on('error', reject);
-        });
-    } catch (error) {
-        console.error("Error parsing request body:", error);
-        return res.status(400).json({ error: "Invalid JSON in request body" });
+        } catch (error) {
+            console.error("Error parsing request body:", error);
+            return res.status(400).json({ error: "Invalid JSON in request body" });
+        }
     }
-    // --- END: MANUAL BODY PARSING FIX ---
+    // --- END: IMPROVED BODY PARSING ---
 
     // Safely destructure the 'contents' property
     const { contents } = bodyData;
