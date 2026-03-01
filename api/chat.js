@@ -16,7 +16,7 @@ if (!API_KEY) {
 console.log(`API Key loaded. Length: ${API_KEY.length}, Starts with: ${API_KEY.substring(0, 4)}..., Ends with: ...${API_KEY.substring(API_KEY.length - 4)}`);
 
 const genAI = new GoogleGenerativeAI(API_KEY);
-const MODEL_NAME = "gemini-1.5-flash"; // Reverting to the modern standard model
+const MODEL_NAME = "gemini-1.5-flash"; // Standard modern model
 
 
 // 4. Api chat endpoint
@@ -75,9 +75,13 @@ module.exports = async (req, res) => {
             return res.status(400).json({ error: "Request body is missing 'contents'. Ensure you are sending JSON with the 'contents' key." });
         }
 
-        // Call the Gemini API
-        // NOTE: gemini-pro is highly stable across different API versions
-        const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+        // --- DEEP DIAGNOSTIC ---
+        const keyPrefix = API_KEY.substring(0, 4);
+        const keySuffix = API_KEY.substring(API_KEY.length - 4);
+        const keyLength = API_KEY.length;
+
+        // Call the Gemini API forcing version 'v1' which is often more stable for regional keys
+        const model = genAI.getGenerativeModel({ model: MODEL_NAME }, { apiVersion: 'v1' });
 
         // Use the simplest possible call format
         const result = await model.generateContent({ contents });
@@ -89,15 +93,21 @@ module.exports = async (req, res) => {
     } catch (error) {
         console.error("Gemini API Error details:", error);
 
-        // Detailed error reporting to help identify model vs auth vs quota issues
         const statusCode = error.status || 500;
         const errorMessage = error.message || "Unknown error";
 
+        // Return a very detailed error to help the user fix their API key or region
         res.status(statusCode).json({
             error: "Gemini API Error",
             message: errorMessage,
-            model_queried: MODEL_NAME,
-            hint: "If this still returns 404 with 'gemini-pro', it strongly suggests the API Key is invalid or restricted for the Generative Language API."
+            diagnostics: {
+                model: MODEL_NAME,
+                version_tried: "v1",
+                key_info: `Prefix: ${API_KEY.substring(0, 4)}..., Suffix: ...${API_KEY.substring(API_KEY.length - 4)}, Length: ${API_KEY.length}`,
+                is_404: errorMessage.includes("404"),
+                key_looks_valid: API_KEY.startsWith("AIza") && API_KEY.length >= 30
+            },
+            instruction: "If you see 404, verify that 'Generative Language API' is enabled in your Google Cloud Project or Google AI Studio."
         });
     }
 };
