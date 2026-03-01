@@ -75,12 +75,7 @@ module.exports = async (req, res) => {
             return res.status(400).json({ error: "Request body is missing 'contents'. Ensure you are sending JSON with the 'contents' key." });
         }
 
-        // --- DEEP DIAGNOSTIC ---
-        const keyPrefix = API_KEY.substring(0, 4);
-        const keySuffix = API_KEY.substring(API_KEY.length - 4);
-        const keyLength = API_KEY.length;
-
-        // Call the Gemini API forcing version 'v1' which is often more stable for regional keys
+        // Call the Gemini API forcing version 'v1'
         const model = genAI.getGenerativeModel({ model: MODEL_NAME }, { apiVersion: 'v1' });
 
         // Use the simplest possible call format
@@ -93,21 +88,28 @@ module.exports = async (req, res) => {
     } catch (error) {
         console.error("Gemini API Error details:", error);
 
+        // Try to list available models to see what this key actually has access to
+        let availableModels = [];
+        try {
+            const list = await genAI.listModels();
+            availableModels = list.models ? list.models.map(m => m.name) : ["No models found in list"];
+        } catch (listError) {
+            availableModels = [`Failed to list models: ${listError.message}`];
+        }
+
         const statusCode = error.status || 500;
         const errorMessage = error.message || "Unknown error";
 
-        // Return a very detailed error to help the user fix their API key or region
         res.status(statusCode).json({
             error: "Gemini API Error",
             message: errorMessage,
             diagnostics: {
-                model: MODEL_NAME,
+                model_queried: MODEL_NAME,
                 version_tried: "v1",
-                key_info: `Prefix: ${API_KEY.substring(0, 4)}..., Suffix: ...${API_KEY.substring(API_KEY.length - 4)}, Length: ${API_KEY.length}`,
-                is_404: errorMessage.includes("404"),
-                key_looks_valid: API_KEY.startsWith("AIza") && API_KEY.length >= 30
+                key_info: `Prefix: ${API_KEY.substring(0, 4)}..., Length: ${API_KEY.length}`,
+                available_models: availableModels
             },
-            instruction: "If you see 404, verify that 'Generative Language API' is enabled in your Google Cloud Project or Google AI Studio."
+            instruction: "If your available_models list is empty or fails, your API Key is likely not configured for the 'Generative Language API'. Go to AI Studio and create a NEW key."
         });
     }
 };
