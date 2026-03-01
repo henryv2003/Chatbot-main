@@ -75,26 +75,37 @@ module.exports = async (req, res) => {
             return res.status(400).json({ error: "Request body is missing 'contents'. Ensure you are sending JSON with the 'contents' key." });
         }
 
-        // --- MODEL HUNTER MODE ---
-        // We try multiple models and versions to find one that works for this specific API key/region.
+        // --- BASE TEST MODE ---
+        // Let's try to rule out everything except the core connection.
+        // We'll try the most robust model and API version combination.
         const variations = [
             { model: "gemini-1.5-flash", version: "v1" },
-            { model: "gemini-1.5-flash", version: "v1beta" },
-            { model: "gemini-pro", version: "v1" },
-            { model: "gemini-1.5-flash-8b", version: "v1" }
+            { model: "gemini-1.5-flash-latest", version: "v1beta" },
+            { model: "gemini-pro", version: "v1" }
         ];
 
         let lastError = null;
         let successfulModel = null;
         let responseText = null;
 
+        // Diagnostic: Masked key for Vercel logs (already handled above)
+
         for (const variant of variations) {
             try {
                 const model = genAI.getGenerativeModel({ model: variant.model }, { apiVersion: variant.version });
-                const result = await model.generateContent({ contents });
+
+                // Minimal prompt test if history fails
+                let result;
+                try {
+                    result = await model.generateContent({ contents });
+                } catch (historyErr) {
+                    console.log(`History fail for ${variant.model}, trying base prompt...`);
+                    result = await model.generateContent("Hello, are you there?");
+                }
+
                 responseText = result.response.text();
                 successfulModel = `${variant.model} (${variant.version})`;
-                break; // Success!
+                break;
             } catch (err) {
                 console.log(`Failed variant ${variant.model} on ${variant.version}: ${err.message}`);
                 lastError = err;
@@ -102,12 +113,9 @@ module.exports = async (req, res) => {
         }
 
         if (responseText) {
-            // Log success for debugging
-            console.log(`Successful model found: ${successfulModel}`);
             return res.status(200).json({ text: responseText, model_used: successfulModel });
         }
 
-        // If we reach here, all variants failed
         throw lastError;
 
     } catch (error) {
@@ -117,13 +125,16 @@ module.exports = async (req, res) => {
         const errorMessage = error.message || "Unknown error";
 
         res.status(statusCode).json({
-            error: "Gemini API Error - All variants failed",
+            error: "Gemini API Error - Persistent 404",
             message: errorMessage,
             diagnostics: {
-                key_info: `Prefix: ${API_KEY.substring(0, 4)}..., Length: ${API_KEY.length}`,
-                hint: "This 404 means the API Key is not authorized for any common Gemini models. This happens if the 'Generative Language API' is not enabled or if you are using an old/restricted key."
+                key_prefix: API_KEY.substring(0, 4),
+                key_suffix: API_KEY.substring(API_KEY.length - 4),
+                key_length: API_KEY.length,
+                is_404: errorMessage.includes("404"),
+                vercel_node_version: process.version
             },
-            instruction: "Please go to AI Studio, create a completely NEW API Key, and update it in your Vercel Environment Variables."
+            remediation: "If you see a 404 with a 39-character key, your region might be restricted or Vercel hasn't picked up the new key. Try a full 'Redeploy' in Vercel."
         });
     }
 };
